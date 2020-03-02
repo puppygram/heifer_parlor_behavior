@@ -1,0 +1,165 @@
+```{r}
+library(readxl)
+library(tidyverse)
+library(plyr) #revalue
+library(lubridate)
+```
+
+```{r}
+Heifer_parlor_behavior = read_excel("original_data/original_heifer_parlor_behavior.xlsx", 
+    sheet = "Behavior") %>% 
+  mutate(Stomp = revalue(Stomp, c("Y" = 1, "N" = 0))) %>% 
+  mutate(Kick = revalue(Kick, c("Y" = 1, "N" = 0))) %>% 
+  mutate(Defecate = revalue(Defecate, c("Y" = 1, "N" = 0))) %>% 
+  mutate(Milker = revalue(Milker, c("Y" = 1, "N" = 0))) %>% 
+  mutate(Swollen = revalue(Swollen, c("Y" = 1, "N" = 0))) %>% 
+  mutate(Pain = revalue(Pain, c("Y" = 1, "N" = 0))) %>%
+  mutate_at(c("Stomp", "Kick", "Defecate", "Milker", 
+              "Swollen", "Pain", "Mastitis score"), as.numeric) %>% 
+  mutate(ID = as.factor(ID)) %>%
+  mutate(kickStomp = ifelse(Kick == 1 | Stomp == 1, 1, 
+                            ifelse(Kick == 0 & Stomp == 0, 0, NA)))
+```
+
+```{r}
+Info = read_excel("original_data/original_heifer_info.xlsx") %>% 
+  dplyr::select("ID", "Treatment","Breed", "Herd") %>% 
+  mutate_at(c("Treatment","Breed", "Herd"), as_factor) %>% 
+  rename(replace = c("Treatment" = "Trt")) %>% 
+  mutate(Trt = revalue(Trt, c("N" = "Control", "Y" = "Train"))) %>% 
+  mutate(Breed = revalue(Breed, c("H" = "Hol", "MSHMJH" = "Mont", "SMHJMH" = "SR", 
+                                  "SHMJH" = "SR", "SJHSJH" = "SR", "SMHSMH" = "SR", 
+                                  "CHH" = "Control", "NMSJHSJH" = "Norm", "MHSMH" = "Mont",                                   "SJNMSJMH" = "SR", "NMSJMH" = "Norm", "MSJHSJH" = "Mont",                                   "HJMH" = "Hol", "HSMHJMH" = "Hol", "SJSJH" = "SR", 
+                                  "HSMH" = "Hol"))) %>% 
+  mutate(Herd = revalue(Herd, c("CONV" = "Conv", "ORG" = "Org")))
+```
+
+```{r}
+Behavior <- merge(Heifer_parlor_behavior, Info, 
+                  by = "ID", all = T) %>% 
+  mutate_at(c("Herd.x", "Trt.x", "Breed.x", "Herd.y", "Trt.y", "Breed.y"), as_factor) %>% 
+  mutate(Herd = paste0(Herd.x, Herd.y)) %>% 
+  mutate(Trt = paste0(Trt.x, Trt.y)) %>% 
+  mutate(Breed = paste0(Breed.x, Breed.y)) %>% 
+  dplyr::select(-c("Herd.x", "Herd.y", "Trt.x", "Trt.y", "Breed.x", "Breed.y")) %>% 
+  mutate_at(c("Herd", "Trt", "Breed"), as_factor) %>% 
+  mutate(Trt = revalue(Trt, c("TrainNA" = "Train", "ControlNA" = "Control", 
+                              "NATrain" = "Train", "NAControl" = "Control", 
+                              "NANA" = "NA"))) %>% 
+  mutate(Herd = revalue(Herd, c("ConvNA" = "Conv", "OrgNA" = "Org", "NAConv" = "Conv", 
+                                "NAOrg" = "Org", "NANA"= "NA"))) %>% 
+  mutate(Breed = revalue(Breed, c("HolNA" = "Hol", "MontNA" = "Mont", "SRNA" = "SR", 
+                                  "NormNA" = "Norm", "JerseyNA" = "Jersey", 
+                                  "NAHol" = "Hol", "NASR" = "SR", "NANorm" = "Norm", 
+                                  "NAMont" =  "Mont", "NAControl" = "Control", 
+                                  "ControlNA" = "Control", "NANA" = "NA"))) %>% 
+  mutate(Date = ymd(Date)) %>% 
+  mutate(Day = yday(Date)) %>%
+  mutate(Month = month(Date)) %>% 
+  mutate(Season = if_else(Month > 6, 'Fall', 'Spring')) %>% 
+  dplyr::select(c(ID, Herd:Day, Season, `Entry score`:Milker, 
+                  `Mastitis score`, kickStomp)) %>% 
+  rename(replace = c("Entry score" = "entryScore", "Behavior" = "parlorScore",
+                     "Mastitis score" = "mastitisScore"))
+
+#count if not NA function
+countFun = function(x){sum(!is.na(x))}
+
+#aggregate data 
+Behavior.count <- Behavior %>%
+  group_by(ID, Herd, Trt, Breed, Season) %>%
+  summarise_all(funs(countFun(.))) %>% 
+  rename_at(vars(-c(ID:Season)), ~ paste0(.,"No"))
+
+
+Behavior.mean <- Behavior %>%
+  group_by(ID, Herd, Trt, Breed, Season) %>%
+  summarise_all(funs(mean(.))) %>% 
+  rename_at(vars(-c(ID:Season)), ~ paste0(.,"Avg"))
+
+Behavior.max <- Behavior %>%
+  dplyr::select(-c(Stomp:kickStomp)) %>%
+  group_by(ID, Herd, Trt, Breed, Season) %>%
+  summarise_all(funs(max(.))) %>% 
+  rename_at(vars(-c(ID:Season)), ~ paste0(.,"Max"))
+
+Behavior = merge(Behavior.count, 
+                 merge(Behavior.mean, 
+                       Behavior.max, 
+                       by = c("ID", "Herd", "Trt", "Breed", "Season"), 
+                       all = T), 
+                 by = c("ID", "Herd", "Trt", "Breed", "Season"), 
+                 all = T) %>% 
+  select(-c(DayNo, DayMax))
+
+```
+
+# Milk data
+```{r}
+Milk = read_excel("original_data/original_milk_sample_results.xlsx", 
+    sheet = "Sheet1") %>% 
+  separate(Sample, into = c("ID", "Date", "Q"), sep = " ") %>% 
+  separate(ID, into = c("Sample", "ID"), sep = "-") %>% 
+  dplyr::select(-c("Date", "Q")) %>% 
+  mutate(Result = as.factor(Result)) %>% 
+  separate(Result, into = c("a", "b", "c", "Level"), 
+           sep = " ", extra = "merge", fill = "left") %>%
+  mutate_all(replace_na, replace = "") %>% 
+  unite(Species, b, c, sep = " ") %>% 
+  mutate_at(c("Species", "Level"), as_factor) %>% 
+  dplyr::select(-a) %>% 
+  mutate(Species = revalue(Species, c(" No" = "noGrowth", " " = "Contaminated", 
+                                      "Positive Cocci" = "GramPosCocci", 
+                                      "broken or" = "Missing"))) %>% 
+  mutate(Level = revalue(Level, 
+                         c("Growth" = "noGrowth", "leaking tube" = "Missing"))) %>%  
+  mutate(Count = 1) %>%
+  spread(key = Species, value = Count) %>% 
+  mutate(Level = ifelse(Level == "noGrowth", 0, 
+                        ifelse(Level == "Low", 1, 
+                               ifelse(Level == "Medium", 2, 
+                                      ifelse(Level == "High", 3, NA))))) %>%
+  mutate(Level = as.numeric(Level)) %>%
+  filter(!is.na(Level)) %>%
+  dplyr::select(-c(Sample, Missing, noGrowth, Contaminated)) %>% 
+  mutate_all(replace_na, replace = 0) %>% 
+  mutate_all(as.numeric) %>% 
+  rename(replace = c("Staphylococcus sp." = "staphSp", 
+                     "Staphylococcus aureus" = "staphAureus", 
+                     "Staphylococcus chromogenes" = "staphChromogenes", 
+                     "Bacillus sp." = "bacillusSp", 
+                     "Staphylococcus xylosus/saprophyticus" = "staphXylosusSaprophyticus", 
+                     "Lactococcus lactis" = "lactoLactis", "Aerococcus sp." = "aeroSp", 
+                     "Streptococcus dysgalactiae" = "strepDysgalactiae", 
+                     "Staphylococcus sciuri" = "staphSciuri", 
+                     "Streptococcus uberis" = "strepUberis", 
+                     "Staphylococcus simulans" = "staphySimulans", 
+                     "Streptococcus sp." = "strepSp", 
+                     "Enterobacter cloacae" = "enterobacterCloacae", 
+                     "Serratia sp." = "serratiaSp", 
+                     "Staphylococcus hominis" = "staphyHominis", 
+                     "Enterococcus faecalis" = "enteroFaecalis", 
+                     "Escherichia coli" = "eColi")) %>%
+  mutate(noBacTypes = rowSums(.[3:20])) %>%
+  mutate(noBacTypes = as.numeric(noBacTypes)) %>%
+  mutate(BacPresent = ifelse(noBacTypes > 0, 1, ifelse(noBacTypes == 0, 0, NA)))
+
+Milk = merge(Milk %>% 
+               group_by(ID) %>% 
+               summarise_all(funs(mean(.))), 
+             Milk %>% 
+               mutate(noSamples = 1) %>% 
+               mutate(noSamples = as.numeric(noSamples)) %>% 
+               group_by(ID) %>% 
+               summarise_at(vars(noSamples), funs(countFun(.))), 
+             by = "ID", all.x = T, all.y = T)
+
+dat <- merge(Behavior, Milk, by = "ID", all.x = T, all.y = T) 
+dat <- dat %>% 
+  filter(ID != "16103" & ID != "16614")
+
+
+write.csv(dat, file = "tidy_dat_heifer_welfare.csv")
+```
+
+
