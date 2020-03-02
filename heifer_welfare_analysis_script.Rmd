@@ -1,0 +1,340 @@
+---
+title: "heifer_welfare_analysis_script"
+author: "Hannah Phillips"
+date: "February 27, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include = F}
+library(readxl)
+library(tidyverse)
+library(utils)
+library(NSM3)
+library(plyr)
+library(lubridate)
+library(BSDA)
+library(NSM3) #RFPW
+library(clusrank)
+library(dplyr)
+library(lme4) #lmer
+library(lmerTest) # KR ddf
+library(MuMIn) #r.squaredGLMM
+library(ggplot2) #plots
+library(merTools)
+library(afex) #CIs
+library(lsmeans) #least squares
+
+
+dat = read_excel("tidy_dat_heifer_welfare.xlsx") %>% 
+  mutate_at(vars(ID, Herd, Trt, Breed, Season), as.factor) %>%
+  mutate_at(vars(entryScoreAvg:noSamples), as.numeric) %>% 
+  dplyr:: select(-"X__1") %>%
+  filter(!is.na(noSamples) | !is.na(entryScoreAvg) | 
+           !is.na(parlorScoreAvg) | !is.na(StompAvg) | !is.na(KickAvg))
+```
+
+# Entry behavior
+```{r}
+Train = subset(dat, Trt == "Train" & !is.na(entryScoreAvg))
+Control = subset(dat, Trt == "Control" & !is.na(entryScoreAvg))
+
+#plot
+{
+par(mfrow=c(1,1))
+
+hist(dat$entryScoreAvg, xlab = "Value", freq = F)
+lines(density(Train$entryScoreAvg), col="blue", lwd=3)
+lines(density(Control$entryScoreAvg), col="red", lwd=3)
+
+legend(title = "Distribution", "topright", legend=c("Train","Control"), col=c("blue","red"), lty=1, lwd = 3)
+}
+
+## test of asymmetry
+test = RFPW(Train$entryScoreAvg) #symmetric
+pnorm(test$obs.stat)
+1- pnorm(test$obs.stat)
+
+test = RFPW(Control$entryScoreAvg) #symmetric
+pnorm(test$obs.stat)
+1- pnorm(test$obs.stat)
+
+wilcox.test(Train$entryScoreAvg, Control$entryScoreAvg, paired = F)
+wilcox.test(Train$entryScoreAvg, conf.int = T)
+wilcox.test(Control$entryScoreAvg, conf.int = T)
+
+#lm
+
+entrym = lmer(entryScoreMax ~ Trt + Season + (1|Breed), 
+                 REML = T, 
+                 data = subset(dat, !is.na(entryScoreMax)))
+
+#diagnostics
+plot(entrym, residuals(.) ~ fitted(.))
+qqnorm(resid(entrym))
+qqline(resid(entrym))
+
+#output
+anova(entrym, ddf = "Kenward-Roger")
+summary(entrym, ddf = "Kenward-Roger")
+
+confint(emmeans(ref.grid(entrym), 
+                pairwise~Trt)$contrasts, 
+        type = "perc")
+
+as.data.frame(emmeans(ref.grid(entrym), pairwise~Trt)$`emmeans`)
+```
+
+# Parlor behavior
+```{r}
+Train = subset(dat, Trt == "Train" & !is.na(parlorScoreMax))
+Control = subset(dat, Trt == "Control" & !is.na(parlorScoreMax))
+
+#plot
+{
+par(mfrow=c(1,1))
+
+hist(dat$parlorScoreMax, xlab = "Value", freq = F)
+lines(density(Train$parlorScoreMax), col="blue", lwd=3)
+lines(density(Control$parlorScoreMax), col="red", lwd=3)
+
+legend(title = "Distribution", "topright", legend=c("Train","Control"), col=c("blue","red"), lty=1, lwd = 3)
+}
+
+## test of asymmetry
+pnorm(RFPW(Train$parlorScoreMax)$obs.stat) # not symetric
+1- pnorm(RFPW(Train$parlorScoreMax)$obs.stat)
+
+pnorm(RFPW(Control$parlorScoreMax)$obs.stat) # symetric
+1- pnorm(RFPW(Control$parlorScoreMax)$obs.stat)
+
+wilcox.test(Train$parlorScoreMax, Control$parlorScoreMax, paired = F)
+SIGN.test(Train$parlorScoreMax, conf.int = T)
+wilcox.test(Control$parlorScoreMax, conf.int = T)
+
+#lm
+parlorm = lmer(parlorScoreMax ~ Trt + Season + (1|Breed), 
+                 REML = T, 
+                 data = subset(dat, !is.na(parlorScoreMax)))
+
+#diagnostics
+plot(parlorm, residuals(.) ~ fitted(.))
+qqnorm(resid(parlorm))
+qqline(resid(parlorm))
+
+#output
+anova(parlorm, ddf = "Kenward-Roger")
+summary(parlorm, ddf = "Kenward-Roger")
+
+confint(emmeans(ref.grid(parlorm), 
+                pairwise~Trt)$contrasts, 
+        type = "perc")
+
+as.data.frame(emmeans(ref.grid(parlorm), pairwise~Trt)$`emmeans`)
+```
+
+# kick-stomp
+```{r}
+Train = subset(dat, Trt == "Train" & !is.na(kickStompAvg))
+Control = subset(dat, Trt == "Control" & !is.na(kickStompAvg))
+
+#plot
+{
+par(mfrow=c(1,1))
+
+hist(dat$kickStompAvg, xlab = "Value", freq = F)
+lines(density(Train$kickStompAvg), col="blue", lwd=3)
+lines(density(Control$kickStompAvg), col="red", lwd=3)
+
+legend(title = "Distribution", "topright", legend=c("Train","Control"), col=c("blue","red"), lty=1, lwd = 3)
+}
+
+## test of asymmetry
+pnorm(RFPW(Train$kickStomp)$obs.stat) # not symetric
+1- pnorm(RFPW(Train$kickStomp)$obs.stat)
+
+pnorm(RFPW(Control$kickStomp)$obs.stat) # symetric
+1- pnorm(RFPW(Control$kickStomp)$obs.stat)
+
+wilcox.test(Train$kickStompAvg, Control$kickStompAvg, paired = F)
+SIGN.test(Train$kickStomp, conf.int = T)
+wilcox.test(Control$kickStomp, conf.int = T)
+
+#lm
+kickm = lmer(kickStompAvg ~ Trt + Season + (1|Breed), 
+                 REML = T, 
+                 data = subset(dat, !is.na(kickStompAvg)))
+
+#diagnostics
+plot(kickm, residuals(.) ~ fitted(.))
+qqnorm(resid(kickm))
+qqline(resid(kickm))
+
+#output
+anova(kickm, ddf = "Kenward-Roger")
+summary(kickm, ddf = "Kenward-Roger")
+
+confint(emmeans(ref.grid(kickm), 
+                pairwise~Trt)$contrasts, 
+        type = "perc")
+
+as.data.frame(emmeans(ref.grid(kickm), pairwise~Trt)$`emmeans`)
+```
+
+# bacteria level
+```{r}
+Train = subset(dat, Trt == "Train" & !is.na(Level))
+Control = subset(dat, Trt == "Control" & !is.na(Level))
+
+#plot
+{
+par(mfrow=c(1,1))
+
+hist(dat$Level, xlab = "Value", freq = F)
+lines(density(Train$Level), col="blue", lwd=3)
+lines(density(Control$Level), col="red", lwd=3)
+
+legend(title = "Distribution", "topright", legend=c("Train","Control"), col=c("blue","red"), lty=1, lwd = 3)
+}
+
+#wilcoxon rank sum test 
+wilcox.test(Train$Level, Control$Level, paired = F, conf.int = T)
+
+## test of asymmetry
+pnorm(RFPW(Train$Level)$obs.stat) #  symetric
+1- pnorm(RFPW(Train$Level)$obs.stat)
+
+pnorm(RFPW(Control$Level)$obs.stat) # symetric
+1- pnorm(RFPW(Control$Level)$obs.stat)
+
+
+wilcox.test(Train$Level, conf.int = T)
+wilcox.test(Control$Level, conf.int = T)
+
+#lm
+level.m = lmer(Level ~ Trt + Season + (1|Breed), 
+             REML = T,
+             weights = noSamples, 
+             data = subset(dat, !is.na(Level)))
+
+#diagnostics
+plot(level.m, residuals(.) ~ fitted(.))
+qqnorm(resid(level.m))
+qqline(resid(level.m))
+
+#output
+anova(level.m, ddf = "Kenward-Roger")
+summary(level.m, ddf = "Kenward-Roger")
+
+confint(emmeans(ref.grid(level.m), 
+                pairwise~Trt)$contrasts, 
+        type = "perc")
+
+as.data.frame(emmeans(ref.grid(level.m), pairwise~Trt)$`emmeans`)
+```
+
+# number of bacteria types
+```{r}
+Train = subset(dat, Trt == "Train" & !is.na(noBacTypes))
+Control = subset(dat, Trt == "Control" & !is.na(noBacTypes))
+
+#plot
+{
+par(mfrow=c(1,1))
+
+hist(dat$noBacTypes, xlab = "Value", freq = F)
+lines(density(Train$noBacTypes), col="blue", lwd=3)
+lines(density(Control$noBacTypes), col="red", lwd=3)
+
+legend(title = "Distribution", "topright", legend=c("Train","Control"), col=c("blue","red"), lty=1, lwd = 3)
+}
+
+#wilcoxon rank sum test 
+wilcox.test(Train$noBacTypes, Control$noBacTypes, paired = F, conf.int = T)
+
+## test of asymmetry
+pnorm(RFPW(Train$noBacTypes)$obs.stat) #  symetric
+1- pnorm(RFPW(Train$noBacTypes)$obs.stat)
+
+pnorm(RFPW(Control$noBacTypes)$obs.stat) # symetric
+1- pnorm(RFPW(Control$noBacTypes)$obs.stat)
+
+
+wilcox.test(Train$noBacTypes, conf.int = T)
+wilcox.test(Control$noBacTypes, conf.int = T)
+
+#lm
+noBac.m = lmer(noBacTypes ~ Trt + Season + (1|Breed), 
+             REML = T,
+             weights = noSamples, 
+             data = subset(dat, !is.na(noBacTypes)))
+
+#diagnostics
+plot(noBac.m, residuals(.) ~ fitted(.))
+qqnorm(resid(noBac.m))
+qqline(resid(noBac.m))
+
+#output
+anova(noBac.m, ddf = "Kenward-Roger")
+summary(noBac.m, ddf = "Kenward-Roger")
+
+confint(emmeans(ref.grid(noBac.m), 
+                pairwise~Trt)$contrasts, 
+        type = "perc")
+
+as.data.frame(emmeans(ref.grid(noBac.m), pairwise~Trt)$`emmeans`)
+```
+
+# proportion of infected Q
+```{r}
+Train = subset(dat, Trt == "Train" & !is.na(BacPresent))
+Control = subset(dat, Trt == "Control" & !is.na(BacPresent))
+
+#plot
+{
+par(mfrow=c(1,1))
+
+hist(dat$BacPresent, xlab = "Value", freq = F)
+lines(density(Train$BacPresent), col="blue", lwd=3)
+lines(density(Control$BacPresent), col="red", lwd=3)
+
+legend(title = "Distribution", "topright", legend=c("Train","Control"), col=c("blue","red"), lty=1, lwd = 3)
+}
+
+#wilcoxon rank sum test 
+wilcox.test(Train$BacPresent, Control$BacPresent, paired = F, conf.int = T)
+
+## test of asymmetry
+pnorm(RFPW(Train$BacPresent)$obs.stat) # not symetric
+1- pnorm(RFPW(Train$BacPresent)$obs.stat)
+
+pnorm(RFPW(Control$BacPresent)$obs.stat) # not symetric
+1- pnorm(RFPW(Control$BacPresent)$obs.stat)
+
+SIGN.test(Train$BacPresent, conf.int = T)
+SIGN.test(Control$BacPresent, conf.int = T)
+
+#lm
+bac.m = lmer(BacPresent ~ Trt + Season + (1|Breed), 
+             REML = T,
+             weights = noSamples, 
+             data = subset(dat, !is.na(BacPresent)))
+
+#diagnostics
+plot(bac.m, residuals(.) ~ fitted(.))
+qqnorm(resid(bac.m))
+qqline(resid(bac.m))
+
+#output
+anova(bac.m, ddf = "Kenward-Roger")
+summary(bac.m, ddf = "Kenward-Roger")
+
+confint(emmeans(ref.grid(bac.m), 
+                pairwise~Trt)$contrasts, 
+        type = "perc")
+
+as.data.frame(emmeans(ref.grid(bac.m), pairwise~Trt)$`emmeans`)
+```
